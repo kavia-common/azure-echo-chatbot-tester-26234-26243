@@ -32,7 +32,10 @@ Install dependencies (ensure you are in the `echo_chatbot_backend` folder):
 
 - Python deps are listed in `requirements.txt` (includes `botbuilder-core` and `botbuilder-schema`).
 
-Run Django as you normally would, then:
+Run checks and start Django as you normally would, then:
+
+- Verify URLConf loads and dependencies using:
+  python manage.py check
 
 - Validate the health endpoint:
   curl -i {BASE_URL}/api/health/

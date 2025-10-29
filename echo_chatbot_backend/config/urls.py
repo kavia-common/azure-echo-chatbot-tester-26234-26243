@@ -21,6 +21,8 @@ from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 from django.views.decorators.csrf import csrf_exempt
 
+# Note: The app is 'api' at the project root; if project structure changes,
+# you may need to use 'config.api.urls' or 'echo_chatbot_backend.api.urls'.
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('api.urls')),

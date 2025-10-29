@@ -3,11 +3,9 @@ from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-# Import bot framework types lazily and keep import-time logic minimal to avoid URLConf load failures.
-from botbuilder.schema import Activity
-from .bot_adapter import get_adapter
-from .bots import EchoBot
-
+# Keep import-time logic minimal to avoid URLConf load failures.
+# Defer any heavy imports (botbuilder, adapter creation) inside the view.
+# Only import DRF/Django at module import time.
 
 # PUBLIC_INTERFACE
 @api_view(['GET'])
@@ -53,8 +51,16 @@ def messages(request):
     if request.content_type != "application/json":
         return HttpResponse(status=415)
 
+    # Lazy imports to prevent heavy operations at module import time
     try:
         import json
+        from botbuilder.schema import Activity  # type: ignore
+        from .bot_adapter import get_adapter
+        from .bots import EchoBot
+    except Exception as e:
+        return JsonResponse({"error": f"Failed to load bot dependencies: {str(e)}"}, status=500)
+
+    try:
         body = request.body.decode("utf-8")
         payload = json.loads(body) if body else {}
         activity = Activity().deserialize(payload)
@@ -77,7 +83,16 @@ def messages(request):
         # Botbuilder returns an awaitable; we must run it to completion.
         import asyncio
         if asyncio.iscoroutine(task):
-            asyncio.get_event_loop().run_until_complete(task)
+            # Use existing loop or create a new event loop if necessary
+            try:
+                asyncio.get_event_loop().run_until_complete(task)
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                try:
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(task)
+                finally:
+                    loop.close()
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
