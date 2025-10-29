@@ -43,16 +43,13 @@ def messages(request):
         return HttpResponse(status=415)
 
     try:
-        body = request.body.decode("utf-8")
-        activity = Activity().deserialize(request.json if hasattr(request, "json") else None)
-    except Exception:
-        # Some Django setups don't attach parsed json; parse from body directly.
         import json
-        try:
-            payload = json.loads(body) if body else {}
-            activity = Activity().deserialize(payload)
-        except Exception as e:
-            return JsonResponse({"error": f"Invalid JSON payload: {str(e)}"}, status=400)
+        body = request.body.decode("utf-8")
+        payload = json.loads(body) if body else {}
+        activity = Activity().deserialize(payload)
+    except Exception as e:
+        # Invalid or malformed JSON
+        return JsonResponse({"error": f"Invalid JSON payload: {str(e)}"}, status=400)
 
     auth_header = request.headers.get("Authorization", None)
 
