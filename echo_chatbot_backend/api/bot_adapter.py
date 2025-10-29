@@ -43,7 +43,7 @@ class AdapterWithErrorHandler(BotFrameworkAdapter):
         self.on_turn_error = on_error
 
     # PUBLIC_INTERFACE
-    def process(self, auth_header: Optional[str], activity: Activity, logic):
+    async def process(self, auth_header: Optional[str], activity: Activity, logic):
         """
         PUBLIC_INTERFACE
         Process an incoming Activity using the adapter, given an auth_header and bot logic.
@@ -51,9 +51,10 @@ class AdapterWithErrorHandler(BotFrameworkAdapter):
         :param auth_header: Authorization header from request (may be None for Emulator).
         :param activity: The activity object created from request JSON.
         :param logic: An async function that accepts a TurnContext.
-        :return: The result of process_activity call.
+        :return: Awaitable that completes after process_activity finishes.
         """
-        return self.process_activity(activity, auth_header, logic)
+        # The SDK signature is process_activity(activity, auth_header, logic)
+        return await self.process_activity(activity, auth_header, logic)
 
 
 _adapter_singleton: Optional[AdapterWithErrorHandler] = None

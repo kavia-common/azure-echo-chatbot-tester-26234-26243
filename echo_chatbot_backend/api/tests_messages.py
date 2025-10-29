@@ -20,6 +20,8 @@ class MessagesEndpointTests(APITestCase):
         payload = self._valid_activity()
         resp = self.client.post(url, data=payload, format="json")
         self.assertEqual(resp.status_code, 200)
+        # Empty body on success
+        self.assertEqual(resp.content, b"")
 
     def test_emulator_bypasses_auth_even_with_header(self):
         url = reverse("bot-messages")

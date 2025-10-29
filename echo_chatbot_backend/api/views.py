@@ -96,6 +96,14 @@ def messages(request):
     if request.method != "POST":
         return HttpResponse(status=405)
 
+    # Log basic request details to help diagnose Emulator interactions.
+    logger.info(
+        "Incoming /api/messages: method=%s content_type=%s auth_present=%s",
+        request.method,
+        request.META.get("CONTENT_TYPE"),
+        "Authorization" in request.headers,
+    )
+
     if not _is_json_content_type(request.META.get("CONTENT_TYPE")):
         error = {"error": {"reason": "unsupported_media_type", "message": "Unsupported Media Type. Use Content-Type: application/json."}}
         logger.warning("Messages 415: %s", error)
@@ -129,6 +137,15 @@ def messages(request):
         error = {"error": {"reason": "invalid_json", "message": f"Invalid JSON payload: {str(e)}"}}
         logger.warning("Messages 400 invalid JSON: %s", e)
         return JsonResponse(error, status=400)
+
+    # Log some payload fields to aid Emulator debugging (safe keys only).
+    logger.info(
+        "Messages payload summary: type=%s channelId=%s has_text=%s keys=%s",
+        payload.get("type"),
+        payload.get("channelId"),
+        "text" in payload and bool(payload.get("text")),
+        list(payload.keys()),
+    )
 
     # Minimal validation for required fields (relaxed for Emulator-style payloads)
     ok, err = _minimal_activity_validation(payload)
