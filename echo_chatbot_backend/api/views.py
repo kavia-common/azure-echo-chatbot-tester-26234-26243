@@ -3,11 +3,13 @@ from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+# Import bot framework types lazily and keep import-time logic minimal to avoid URLConf load failures.
 from botbuilder.schema import Activity
 from .bot_adapter import get_adapter
 from .bots import EchoBot
 
 
+# PUBLIC_INTERFACE
 @api_view(['GET'])
 def health(request):
     """
@@ -15,7 +17,7 @@ def health(request):
     Health check endpoint.
 
     Returns:
-        200 OK with a JSON message indicating the server is up.
+        Response: 200 OK with a JSON message indicating the server is up.
     """
     return Response({"message": "Server is up!"})
 
@@ -27,14 +29,23 @@ def messages(request):
     PUBLIC_INTERFACE
     Django view to handle Bot Framework activities at POST /api/messages.
 
-    - Validates content type is application/json.
-    - Reads the Authorization header (if provided).
-    - Deserializes request body into a Bot Framework Activity.
-    - Invokes the BotFramework adapter to process the activity using EchoBot.
-    - Returns:
-        200 OK on success
-        415 Unsupported Media Type when content-type is incorrect
-        500 with JSON details on unhandled exceptions
+    Usage:
+        - POST JSON body representing a Bot Framework Activity.
+        - Content-Type must be application/json.
+
+    Behavior:
+        - Validates content type is application/json.
+        - Reads the Authorization header (if provided).
+        - Deserializes request body into a Bot Framework Activity.
+        - Invokes the BotFramework adapter to process the activity using EchoBot.
+
+    Returns:
+        HttpResponse:
+            - 200 OK on success
+            - 405 Method Not Allowed if not POST
+            - 415 Unsupported Media Type when content-type is incorrect
+            - 400 Bad Request for invalid/malformed JSON
+            - 500 Internal Server Error for unhandled exceptions
     """
     if request.method != "POST":
         return HttpResponse(status=405)
