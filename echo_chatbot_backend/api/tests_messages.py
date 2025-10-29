@@ -9,7 +9,7 @@ class MessagesEndpointTests(APITestCase):
             "type": "message",
             "text": "hello",
             "from": {"id": "user1"},
-            "recipient": {"id": "bot1"},
+            # recipient is optional for Emulator; adapter can populate
             "conversation": {"id": "conv1"},
             "channelId": "emulator",
             "serviceUrl": "http://localhost",
@@ -19,6 +19,18 @@ class MessagesEndpointTests(APITestCase):
         url = reverse("bot-messages")
         payload = self._valid_activity()
         resp = self.client.post(url, data=payload, format="json")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_emulator_bypasses_auth_even_with_header(self):
+        url = reverse("bot-messages")
+        payload = self._valid_activity()
+        # Simulate Emulator sending an Authorization header (should be ignored)
+        resp = self.client.post(
+            url,
+            data=payload,
+            format="json",
+            HTTP_AUTHORIZATION="Bearer fake.emulator.token"
+        )
         self.assertEqual(resp.status_code, 200)
 
     def test_messages_returns_415_for_wrong_content_type(self):
@@ -39,7 +51,7 @@ class MessagesEndpointTests(APITestCase):
     def test_messages_returns_400_for_missing_required_field(self):
         url = reverse("bot-messages")
         payload = self._valid_activity()
-        del payload["serviceUrl"]
+        del payload["conversation"]
         resp = self.client.post(url, data=payload, format="json")
         self.assertEqual(resp.status_code, 400)
         self.assertIn(b"Missing required field", resp.content)

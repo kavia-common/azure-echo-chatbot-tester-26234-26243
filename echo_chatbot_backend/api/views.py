@@ -33,26 +33,33 @@ def _is_json_content_type(content_type: str | None) -> bool:
 def _minimal_activity_validation(payload: dict) -> tuple[bool, str | None]:
     """
     Perform minimal validation for Bot Framework Activity needed by adapter.process_activity.
-    We do not fully validate schema here; just ensure core fields are present.
+    We intentionally keep validation minimal and defer schema rules to the Bot Framework SDK.
 
-    Required minimal keys for basic processing:
+    Required minimal keys for basic processing (relaxed):
     - type
     - channelId
     - serviceUrl
     - from
-    - recipient
     - conversation
+
+    Notes:
+    - recipient is often populated by the channel/adapter and is not required for Emulator posts.
+    - We only validate that nested 'from' and 'conversation' are objects if present.
+    - Additional fields are passed through as-is and handled by the adapter.
 
     Returns (ok, error_message).
     """
-    required_fields = ["type", "channelId", "serviceUrl", "from", "recipient", "conversation"]
+    required_fields = ["type", "channelId", "serviceUrl", "from", "conversation"]
     for f in required_fields:
         if f not in payload or payload[f] is None:
             return False, f"Missing required field: {f}"
     # Ensure nested dict-like structures exist where expected
-    for nested in ["from", "recipient", "conversation"]:
+    for nested in ["from", "conversation"]:
         if not isinstance(payload.get(nested), dict):
             return False, f"Field '{nested}' must be an object"
+    # If recipient is present ensure it's an object, but do not require it
+    if "recipient" in payload and not isinstance(payload.get("recipient"), dict):
+        return False, "Field 'recipient' must be an object when provided"
     return True, None
 
 
@@ -122,10 +129,13 @@ def messages(request):
     except Exception as e:
         return JsonResponse({"error": f"Invalid Activity schema: {str(e)}"}, status=400)
 
-    # Emulator handling: if channelId is 'emulator' and no auth provided, skip validation
-    auth_header = request.headers.get("Authorization")
-    if (payload.get("channelId") == "emulator") and not auth_header:
-        auth_header = None  # Explicitly ensure None to bypass JWT validation in adapter
+    # Emulator handling:
+    # For Bot Framework Emulator, bypass JWT validation entirely regardless of any Authorization header it might send.
+    # Emulator traffic uses channelId='emulator'. We explicitly null auth_header so adapter skips JWT checks.
+    incoming_auth = request.headers.get("Authorization")
+    auth_header = incoming_auth
+    if payload.get("channelId") == "emulator":
+        auth_header = None
 
     adapter = get_adapter()
     bot = EchoBot()
