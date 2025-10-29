@@ -55,6 +55,11 @@ Run checks and start Django as you normally would, then:
 
 You should receive HTTP 200.
 
+Notes:
+- Content-Type must be "application/json" (charset allowed). If incorrect, server returns 415.
+- Malformed JSON returns 400 with a concise error message.
+- When channelId is "emulator" and no Authorization header is provided, the endpoint skips JWT validation, allowing local Emulator and curl tests to work without credentials.
+
 ## Using Bot Framework Emulator (no credentials)
 
 - Leave MICROSOFT_APP_ID and MICROSOFT_APP_PASSWORD empty.

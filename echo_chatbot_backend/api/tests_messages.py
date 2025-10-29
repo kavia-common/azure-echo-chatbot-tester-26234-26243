@@ -1,0 +1,45 @@
+from rest_framework.test import APITestCase
+from django.urls import reverse
+
+
+class MessagesEndpointTests(APITestCase):
+    # PUBLIC_INTERFACE
+    def _valid_activity(self):
+        return {
+            "type": "message",
+            "text": "hello",
+            "from": {"id": "user1"},
+            "recipient": {"id": "bot1"},
+            "conversation": {"id": "conv1"},
+            "channelId": "emulator",
+            "serviceUrl": "http://localhost",
+        }
+
+    def test_messages_returns_200_for_valid_activity(self):
+        url = reverse("bot-messages")
+        payload = self._valid_activity()
+        resp = self.client.post(url, data=payload, format="json")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_messages_returns_415_for_wrong_content_type(self):
+        url = reverse("bot-messages")
+        payload = '{"type":"message"}'
+        # Send wrong content type
+        resp = self.client.post(url, data=payload, content_type="text/plain")
+        self.assertEqual(resp.status_code, 415)
+        self.assertIn("Unsupported Media Type", str(resp.content))
+
+    def test_messages_returns_400_for_malformed_json(self):
+        url = reverse("bot-messages")
+        bad_json = '{"type": "message", '  # malformed
+        resp = self.client.post(url, data=bad_json, content_type="application/json")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn(b"Invalid JSON payload", resp.content)
+
+    def test_messages_returns_400_for_missing_required_field(self):
+        url = reverse("bot-messages")
+        payload = self._valid_activity()
+        del payload["serviceUrl"]
+        resp = self.client.post(url, data=payload, format="json")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn(b"Missing required field", resp.content)

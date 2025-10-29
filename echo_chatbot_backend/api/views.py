@@ -3,6 +3,7 @@ from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+
 # Keep import-time logic minimal to avoid URLConf load failures.
 # Defer any heavy imports (botbuilder, adapter creation) inside the view.
 # Only import DRF/Django at module import time.
@@ -20,6 +21,41 @@ def health(request):
     return Response({"message": "Server is up!"})
 
 
+def _is_json_content_type(content_type: str | None) -> bool:
+    """
+    Check if the content type is JSON. Accept variants like 'application/json; charset=utf-8'.
+    """
+    if not content_type:
+        return False
+    return content_type.split(";")[0].strip().lower() == "application/json"
+
+
+def _minimal_activity_validation(payload: dict) -> tuple[bool, str | None]:
+    """
+    Perform minimal validation for Bot Framework Activity needed by adapter.process_activity.
+    We do not fully validate schema here; just ensure core fields are present.
+
+    Required minimal keys for basic processing:
+    - type
+    - channelId
+    - serviceUrl
+    - from
+    - recipient
+    - conversation
+
+    Returns (ok, error_message).
+    """
+    required_fields = ["type", "channelId", "serviceUrl", "from", "recipient", "conversation"]
+    for f in required_fields:
+        if f not in payload or payload[f] is None:
+            return False, f"Missing required field: {f}"
+    # Ensure nested dict-like structures exist where expected
+    for nested in ["from", "recipient", "conversation"]:
+        if not isinstance(payload.get(nested), dict):
+            return False, f"Field '{nested}' must be an object"
+    return True, None
+
+
 # PUBLIC_INTERFACE
 @csrf_exempt
 def messages(request):
@@ -32,9 +68,11 @@ def messages(request):
         - Content-Type must be application/json.
 
     Behavior:
-        - Validates content type is application/json.
+        - Validates content type is application/json (charset allowed).
         - Reads the Authorization header (if provided).
         - Deserializes request body into a Bot Framework Activity.
+        - For Bot Framework Emulator (channelId='emulator') without Authorization header,
+          skip JWT validation by clearing auth header.
         - Invokes the BotFramework adapter to process the activity using EchoBot.
 
     Returns:
@@ -43,13 +81,14 @@ def messages(request):
             - 405 Method Not Allowed if not POST
             - 415 Unsupported Media Type when content-type is incorrect
             - 400 Bad Request for invalid/malformed JSON
+            - 400 Bad Request for missing required activity fields
             - 500 Internal Server Error for unhandled exceptions
     """
     if request.method != "POST":
         return HttpResponse(status=405)
 
-    if request.content_type != "application/json":
-        return HttpResponse(status=415)
+    if not _is_json_content_type(request.META.get("CONTENT_TYPE")):
+        return JsonResponse({"error": "Unsupported Media Type. Use Content-Type: application/json."}, status=415)
 
     # Lazy imports to prevent heavy operations at module import time
     try:
@@ -60,15 +99,33 @@ def messages(request):
     except Exception as e:
         return JsonResponse({"error": f"Failed to load bot dependencies: {str(e)}"}, status=500)
 
+    # Parse JSON body
     try:
-        body = request.body.decode("utf-8")
-        payload = json.loads(body) if body else {}
-        activity = Activity().deserialize(payload)
+        # Prefer raw body to avoid DRF parsing side-effects and to control error messages
+        raw = request.body.decode("utf-8") if request.body is not None else ""
+        if not raw:
+            return JsonResponse({"error": "Empty request body."}, status=400)
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            return JsonResponse({"error": "JSON payload must be an object."}, status=400)
     except Exception as e:
-        # Invalid or malformed JSON
         return JsonResponse({"error": f"Invalid JSON payload: {str(e)}"}, status=400)
 
-    auth_header = request.headers.get("Authorization", None)
+    # Minimal validation for required fields
+    ok, err = _minimal_activity_validation(payload)
+    if not ok:
+        return JsonResponse({"error": err}, status=400)
+
+    # Deserialize to Activity
+    try:
+        activity = Activity().deserialize(payload)
+    except Exception as e:
+        return JsonResponse({"error": f"Invalid Activity schema: {str(e)}"}, status=400)
+
+    # Emulator handling: if channelId is 'emulator' and no auth provided, skip validation
+    auth_header = request.headers.get("Authorization")
+    if (payload.get("channelId") == "emulator") and not auth_header:
+        auth_header = None  # Explicitly ensure None to bypass JWT validation in adapter
 
     adapter = get_adapter()
     bot = EchoBot()
@@ -79,14 +136,25 @@ def messages(request):
     try:
         # Use adapter to process the incoming activity
         task = adapter.process(auth_header, activity, aux_logic)
-        # If running under sync view, ensure completion
-        # Botbuilder returns an awaitable; we must run it to completion.
+
+        # Ensure completion in sync view
         import asyncio
         if asyncio.iscoroutine(task):
-            # Use existing loop or create a new event loop if necessary
             try:
-                asyncio.get_event_loop().run_until_complete(task)
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # Running inside an event loop; create a new one for blocking wait
+                    new_loop = asyncio.new_event_loop()
+                    try:
+                        asyncio.set_event_loop(new_loop)
+                        new_loop.run_until_complete(task)
+                    finally:
+                        new_loop.close()
+                        asyncio.set_event_loop(loop)
+                else:
+                    loop.run_until_complete(task)
             except RuntimeError:
+                # No current loop; create one
                 loop = asyncio.new_event_loop()
                 try:
                     asyncio.set_event_loop(loop)
@@ -94,6 +162,8 @@ def messages(request):
                 finally:
                     loop.close()
     except Exception as e:
+        # Unexpected error within adapter/bot logic
         return JsonResponse({"error": str(e)}, status=500)
 
+    # As per Bot Framework protocol, respond 200 with no body for successful processing
     return HttpResponse(status=200)
