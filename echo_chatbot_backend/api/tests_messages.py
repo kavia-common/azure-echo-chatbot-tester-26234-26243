@@ -55,3 +55,20 @@ class MessagesEndpointTests(APITestCase):
         resp = self.client.post(url, data=payload, format="json")
         self.assertEqual(resp.status_code, 400)
         self.assertIn(b"Missing required field", resp.content)
+
+    def test_emulator_style_payload_random_port_and_no_recipient_returns_200(self):
+        """
+        Verify Emulator-style activity with random localhost port in serviceUrl,
+        missing recipient, and no id fields returns 200.
+        """
+        url = reverse("bot-messages")
+        payload = {
+            "type": "message",
+            "channelId": "emulator",
+            "serviceUrl": "http://localhost:62157",
+            "from": {"id": "emulatorUser"},
+            "conversation": {"id": "emulatorConv"},
+            "text": "Ping"
+        }
+        resp = self.client.post(url, data=payload, format="json")
+        self.assertEqual(resp.status_code, 200)

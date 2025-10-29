@@ -2,7 +2,9 @@ from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
+import logging
 
+logger = logging.getLogger(__name__)
 
 # Keep import-time logic minimal to avoid URLConf load failures.
 # Defer any heavy imports (botbuilder, adapter creation) inside the view.
@@ -45,7 +47,8 @@ def _minimal_activity_validation(payload: dict) -> tuple[bool, str | None]:
     Notes:
     - recipient is often populated by the channel/adapter and is not required for Emulator posts.
     - We only validate that nested 'from' and 'conversation' are objects if present.
-    - Additional fields are passed through as-is and handled by the adapter.
+    - We do NOT require 'id' anywhere; adapter/Bot can populate as needed.
+    - serviceUrl can be any valid string, including localhost with random port as used by Emulator.
 
     Returns (ok, error_message).
     """
@@ -78,8 +81,7 @@ def messages(request):
         - Validates content type is application/json (charset allowed).
         - Reads the Authorization header (if provided).
         - Deserializes request body into a Bot Framework Activity.
-        - For Bot Framework Emulator (channelId='emulator') without Authorization header,
-          skip JWT validation by clearing auth header.
+        - For Bot Framework Emulator (channelId='emulator'), skip JWT validation by clearing auth header.
         - Invokes the BotFramework adapter to process the activity using EchoBot.
 
     Returns:
@@ -95,7 +97,9 @@ def messages(request):
         return HttpResponse(status=405)
 
     if not _is_json_content_type(request.META.get("CONTENT_TYPE")):
-        return JsonResponse({"error": "Unsupported Media Type. Use Content-Type: application/json."}, status=415)
+        error = {"error": {"reason": "unsupported_media_type", "message": "Unsupported Media Type. Use Content-Type: application/json."}}
+        logger.warning("Messages 415: %s", error)
+        return JsonResponse(error, status=415)
 
     # Lazy imports to prevent heavy operations at module import time
     try:
@@ -104,30 +108,43 @@ def messages(request):
         from .bot_adapter import get_adapter
         from .bots import EchoBot
     except Exception as e:
-        return JsonResponse({"error": f"Failed to load bot dependencies: {str(e)}"}, status=500)
+        error = {"error": {"reason": "dependency_load_failure", "message": f"Failed to load bot dependencies: {str(e)}"}}
+        logger.exception("Messages 500 during dependency load: %s", e)
+        return JsonResponse(error, status=500)
 
     # Parse JSON body
     try:
         # Prefer raw body to avoid DRF parsing side-effects and to control error messages
         raw = request.body.decode("utf-8") if request.body is not None else ""
         if not raw:
-            return JsonResponse({"error": "Empty request body."}, status=400)
+            error = {"error": {"reason": "empty_body", "message": "Empty request body."}}
+            logger.warning("Messages 400: %s", error)
+            return JsonResponse(error, status=400)
         payload = json.loads(raw)
         if not isinstance(payload, dict):
-            return JsonResponse({"error": "JSON payload must be an object."}, status=400)
+            error = {"error": {"reason": "invalid_type", "message": "JSON payload must be an object."}}
+            logger.warning("Messages 400: %s", error)
+            return JsonResponse(error, status=400)
     except Exception as e:
-        return JsonResponse({"error": f"Invalid JSON payload: {str(e)}"}, status=400)
+        error = {"error": {"reason": "invalid_json", "message": f"Invalid JSON payload: {str(e)}"}}
+        logger.warning("Messages 400 invalid JSON: %s", e)
+        return JsonResponse(error, status=400)
 
-    # Minimal validation for required fields
+    # Minimal validation for required fields (relaxed for Emulator-style payloads)
     ok, err = _minimal_activity_validation(payload)
     if not ok:
-        return JsonResponse({"error": err}, status=400)
+        error = {"error": {"reason": "invalid_activity", "message": err}}
+        logger.warning("Messages 400 invalid activity: %s; payload keys=%s", err, list(payload.keys()))
+        return JsonResponse(error, status=400)
 
     # Deserialize to Activity
     try:
         activity = Activity().deserialize(payload)
     except Exception as e:
-        return JsonResponse({"error": f"Invalid Activity schema: {str(e)}"}, status=400)
+        # Do not strictly enforce schema here; return helpful error.
+        error = {"error": {"reason": "schema_deserialize_error", "message": f"Invalid Activity schema: {str(e)}"}}
+        logger.warning("Messages 400 schema deserialize error: %s", e)
+        return JsonResponse(error, status=400)
 
     # Emulator handling:
     # For Bot Framework Emulator, bypass JWT validation entirely regardless of any Authorization header it might send.
@@ -173,7 +190,8 @@ def messages(request):
                     loop.close()
     except Exception as e:
         # Unexpected error within adapter/bot logic
-        return JsonResponse({"error": str(e)}, status=500)
+        logger.exception("Messages 500 during adapter/bot processing: %s", e)
+        return JsonResponse({"error": {"reason": "adapter_error", "message": str(e)}}, status=500)
 
     # As per Bot Framework protocol, respond 200 with no body for successful processing
     return HttpResponse(status=200)
