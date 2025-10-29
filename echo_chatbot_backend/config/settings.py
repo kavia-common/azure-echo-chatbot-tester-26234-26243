@@ -136,3 +136,17 @@ CORS_ALLOW_ALL_ORIGINS = True
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 USE_X_FORWARDED_HOST = True
 X_FRAME_OPTIONS = 'ALLOWALL'
+
+# Azure Bot Framework configuration pulled from environment.
+# Do not hardcode secrets; ensure they are provided via environment variables.
+import os  # noqa: E402
+
+AZURE_BOT = {
+    # Microsoft App Registration values (optional when using Emulator without auth)
+    "MICROSOFT_APP_ID": os.getenv("MICROSOFT_APP_ID", ""),
+    "MICROSOFT_APP_PASSWORD": os.getenv("MICROSOFT_APP_PASSWORD", ""),
+    # Optional tenant; used for single-tenant bots
+    "MICROSOFT_APP_TENANT_ID": os.getenv("MICROSOFT_APP_TENANT_ID", ""),
+    # Optional: toggle OpenID validation or other strict validations, default False
+    "BOT_OPEN_ID_VALIDATION": os.getenv("BOT_OPEN_ID_VALIDATION", "false").lower() in ("1", "true", "yes"),
+}
