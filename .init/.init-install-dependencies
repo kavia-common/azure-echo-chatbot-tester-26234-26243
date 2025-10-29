@@ -1,0 +1,4 @@
+{
+    "command": "source venv/bin/activate && pip install -r requirements.txt",
+    "working_directory": "/home/kavia/workspace/code-generation/azure-echo-chatbot-tester-26234-26243/echo_chatbot_backend"
+}

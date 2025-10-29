@@ -1,0 +1,4 @@
+{
+    "command": "source venv/bin/activate && python manage.py migrate && python manage.py runserver <host>:<port>",
+    "working_directory": "/home/kavia/workspace/code-generation/azure-echo-chatbot-tester-26234-26243/echo_chatbot_backend"
+}
